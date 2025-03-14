@@ -13,6 +13,8 @@ composeBom = "2024.04.01"
 retrofit = "2.11.0"
 workRuntimeKtx = "2.10.0"
 room = "2.6.1"
+runtimeLivedata = "1.7.8"
+storage = "1.4.2"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -37,6 +39,8 @@ room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }
 room-ktx = { module = "androidx.room:room-ktx", version.ref = "room" }
 room-compiler = { module = "androidx.room:room-compiler", version.ref = "room" }
 room-ksp = { module = "androidx.room:room-compiler", version.ref = "room" }
+androidx-runtime-livedata = { group = "androidx.compose.runtime", name = "runtime-livedata", version.ref = "runtimeLivedata" }
+androidx-storage = { group = "androidx.test.services", name = "storage", version.ref = "storage" }
 
 
 

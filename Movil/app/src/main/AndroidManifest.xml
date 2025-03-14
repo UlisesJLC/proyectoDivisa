@@ -24,6 +24,20 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <provider
+            android:name=".ContentProvider.ExchangeRateProvider"
+            android:authorities="com.example.proyecto_divisa.ContentProvider"
+            android:exported="true"
+            android:grantUriPermissions="true">
+
+            <!-- 🔹 Permitir acceso a cualquier aplicación que haga la consulta -->
+            <intent-filter>
+                <action android:name="android.content.action.GRANT_URI_PERMISSION"/>
+            </intent-filter>
+
+        </provider>
+
+
     </application>
 
 </manifest>

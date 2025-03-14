@@ -1,5 +1,6 @@
 package com.example.proyecto_divisa.data
 
+import com.google.gson.annotations.SerializedName
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -18,6 +19,7 @@ interface ExchangeRateApiService {
 data class ExchangeRateResponse(
     val result: String, // "success" o "error"
     val base_code: String, // Moneda base (ej: "USD")
+    @SerializedName("time_last_update_unix") val timeLastUpdateUtc: Long,
     val conversion_rates: Map<String, Double> // Tasas de cambio
 )
 

@@ -1,13 +1,18 @@
 package com.example.proyecto_divisa
 
 import android.content.Context
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.annotation.RequiresApi
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -43,6 +48,22 @@ import org.json.JSONObject
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.livedata.observeAsState
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.unit.dp
+import java.time.Instant
+import java.time.ZoneId
+
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -51,9 +72,10 @@ class MainActivity : ComponentActivity() {
             .setRequiredNetworkType(NetworkType.CONNECTED) // Opcional: Ejecutar solo cuando haya conexión a internet
             .build()
 
-        val periodicWorkRequest = PeriodicWorkRequestBuilder<MyHourlyTaskWorker>(15, TimeUnit.MINUTES)
+        val periodicWorkRequest = PeriodicWorkRequestBuilder<MyHourlyTaskWorker>(1, TimeUnit.HOURS)
             .setConstraints(constraints)
             .build()
+
 
         WorkManager.getInstance(applicationContext).enqueueUniquePeriodicWork(
             "uniqueWorkName",
@@ -63,11 +85,15 @@ class MainActivity : ComponentActivity() {
         setContent {
             Proyecto_DivisaTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    Greeting(
-                        name = "Android",
+                    ExchangeRateScreen(modifier = Modifier.padding(innerPadding))
+                }/*
+                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+
+                    ExchangeRateList(
                         modifier = Modifier.padding(innerPadding)
                     )
                 }
+                */
             }
         }
     }
@@ -89,6 +115,23 @@ fun GreetingPreview() {
     }
 }
 
+@Composable
+fun ExchangeRateList(modifier: Modifier = Modifier) {
+    // Obtener instancia de la base de datos
+    val db = AppDatabase.getInstance(LocalContext.current)
+
+    // Observar los cambios en los datos
+    val rates by db.exchangeRateDAO().getAllRates().collectAsState(emptyList())
+
+    LazyColumn(modifier = modifier) {
+        items(rates) { rate ->
+            Text(
+                text = "${rate.nombre}: ${"%.4f".format(rate.cantidad)} (Fecha: ${rate.fecha})", // Ahora incluye la fecha
+                modifier = Modifier.padding(16.dp)
+            )
+        }
+    }
+}
 
 
 class MyHourlyTaskWorker(appContext: Context, workerParams: WorkerParameters) : CoroutineWorker(appContext, workerParams) {
@@ -97,37 +140,28 @@ class MyHourlyTaskWorker(appContext: Context, workerParams: WorkerParameters) : 
     override suspend fun doWork(): Result {
         return withContext(Dispatchers.IO) {
             try {
-                // Obtener la clave API
-                val apiKey = "5dec4225b0c3705176f46382"
-
-                // Obtener una instancia del servicio Retrofit
+                val apiKey = "e313f23987b8bdb9633e0aed"
                 val exchangeRateService = RetrofitClient.instance
-
-                // Realizar la solicitud a la API (usando la función suspendida)
                 val exchangeRateResponse = exchangeRateService.getLatestRates(apiKey, "MXN")
 
-                // Verificar si la solicitud fue exitosa
                 if (exchangeRateResponse.result == "success") {
-                    // Obtener una instancia de la base de datos
                     val db = AppDatabase.getInstance(applicationContext)
 
-                    // Obtener la fecha actual
-                    val fechaHoraActual = LocalDateTime.now()
-                    val formatter2 = DateTimeFormatter.ofPattern("yyyy-MM-dd")
-                    val fechaFormateada2 = fechaHoraActual.toLocalDate().format(formatter2)
+                    // Obtener el timestamp de la API y convertirlo a una fecha
+                    val rawTimestamp = exchangeRateResponse.timeLastUpdateUtc
+                    val fechaDesdeApi = formatDate(rawTimestamp)
 
-                    // Insertar cada tasa de cambio en la base de datos
                     val response = exchangeRateResponse.conversion_rates
                     for ((clave, valor) in response) {
                         val exchangeDetail = ExchangeRate(
                             nombre = clave,
                             cantidad = valor,
-                            fecha = fechaFormateada2
+                            fecha = fechaDesdeApi // Guardando solo la fecha
                         )
                         db.exchangeRateDAO().insertar(exchangeDetail)
                     }
 
-                    Log.i("MyHourlyTaskWorker", "Tasas de cambio obtenidas y guardadas en la base de datos")
+                    Log.i("MyHourlyTaskWorker", "Tasas de cambio guardadas con fecha: $fechaDesdeApi")
                     Result.success()
                 } else {
                     Log.e("MyHourlyTaskWorker", "Error al obtener tasas de cambio: ${exchangeRateResponse.result}")
@@ -144,5 +178,85 @@ class MyHourlyTaskWorker(appContext: Context, workerParams: WorkerParameters) : 
                 Result.failure()
             }
         }
+    }
+
+}
+
+@RequiresApi(Build.VERSION_CODES.O)
+fun formatDate(unixTimestamp: Long): String {
+    val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+
+    return Instant.ofEpochSecond(unixTimestamp)
+        .atZone(ZoneId.of("UTC")) // Convierte el timestamp a una fecha en UTC
+        .toLocalDate() // Extrae solo la fecha
+        .format(formatter) // Formatea la fecha a "yyyy-MM-dd"
+}
+
+@Composable
+fun ExchangeRateScreen(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val contentResolver = context.contentResolver
+    val exchangeRates = remember { mutableStateListOf<ExchangeRateItem>() }
+
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {  // 🔹 Ejecutar en un hilo secundario
+            val uri = Uri.parse("content://com.example.proyecto_divisa.ContentProvider/exchangerate")
+            val cursor = contentResolver.query(uri, null, null, null, null)
+
+            cursor?.use {
+                while (it.moveToNext()) {
+                    val nombre = it.getString(it.getColumnIndexOrThrow("nombre"))
+                    val cantidad = it.getDouble(it.getColumnIndexOrThrow("cantidad"))
+                    val fecha = it.getString(it.getColumnIndexOrThrow("fecha"))
+
+                    Log.d("Consulta", "Moneda: $nombre, Tasa: $cantidad, Fecha: $fecha")
+
+                    // 🔹 Agregar datos en el hilo principal para evitar problemas con Compose
+                    withContext(Dispatchers.Main) {
+                        exchangeRates.add(ExchangeRateItem(nombre, cantidad, fecha))
+                    }
+                }
+            }
+        }
+    }
+
+    Column(modifier = modifier.padding(16.dp)) {
+        Text(text = "Tasas de Cambio", style = MaterialTheme.typography.headlineMedium)
+        Spacer(modifier = Modifier.height(8.dp))
+        LazyColumn {
+            items(exchangeRates) { rate ->
+                ExchangeRateItemView(rate)
+            }
+        }
+    }
+}
+
+@Composable
+fun ExchangeRateItemView(rate: ExchangeRateItem) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(text = "Moneda: ${rate.nombre}", style = MaterialTheme.typography.bodyLarge)
+            Text(text = "Tasa: ${"%.4f".format(rate.cantidad)}", style = MaterialTheme.typography.bodyMedium)
+            Text(text = "Fecha: ${rate.fecha}", style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+data class ExchangeRateItem(
+    val nombre: String,
+    val cantidad: Double,
+    val fecha: String
+)
+
+@Preview(showBackground = true)
+@Composable
+fun PreviewExchangeRateScreen() {
+    Proyecto_DivisaTheme {
+        ExchangeRateScreen()
     }
 }
